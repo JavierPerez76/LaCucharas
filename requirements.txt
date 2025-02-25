@@ -1,0 +1,6 @@
+streamlit==1.19.0
+azure-ai-formrecognizer==3.2.0
+azure-core==1.26.2
+pandas==1.5.3
+sqlalchemy==2.0.16
+pymysql==1.0.3
