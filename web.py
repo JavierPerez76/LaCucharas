@@ -82,20 +82,24 @@ def format_result(result_data):
         "document": result_data.get("analyzeResult", {}).get("metadata", {}).get("docType", "desconocido"),
         "labels": []
     }
+
+    # Extraemos las páginas de los resultados del análisis
+    pages = result_data.get("analyzeResult", {}).get("pages", [])
     
-    for page in result_data.get("analyzeResult", {}).get("documents", []):
-        for label in page.get("fields", {}).values():
-            label_name = label.get("label", "Desconocido")
-            label_value = label.get("value", [])
-            
-            formatted_result["labels"].append({
-                "label": label_name,
-                "value": [{
-                    "page": label_value.get("page", "Desconocido"),
-                    "text": label_value.get("text", ""),
-                    "boundingBoxes": label_value.get("boundingBox", [])
-                }]
-            })
+    for page in pages:
+        for field in page.get("fields", {}).values():
+            label = field.get("label", "Desconocido")
+            if field.get("text"):
+                formatted_result["labels"].append({
+                    "label": label,
+                    "value": [
+                        {
+                            "page": page.get("pageNumber", "Desconocido"),
+                            "text": field.get("text", ""),
+                            "boundingBoxes": field.get("boundingBox", [])
+                        }
+                    ]
+                })
     
     return formatted_result
 
