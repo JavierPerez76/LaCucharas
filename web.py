@@ -3,7 +3,6 @@ from azure.storage.blob import BlobServiceClient
 import requests
 import json
 import pyodbc
-import time
 
 # Configuración de la conexión a Azure Blob Storage
 AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
@@ -32,13 +31,19 @@ def upload_to_blob(file):
         return None
 
 def analyze_pdf(blob_name):
-    url = f"{DOCUMENT_INTELLIGENCE_ENDPOINT}/formrecognizer/documentModels/{MODEL_ID}:analyze?api-version=2023-07-31"
+    # Extraer el nombre de la cuenta desde la cadena de conexión
+    storage_account_name = AZURE_STORAGE_CONNECTION_STRING.split(';')[1].split('=')[1]  # Obtén el AccountName
+    url = f"https://{storage_account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
+    
+    # Continuar con la lógica del análisis de PDF
+    request_url = f"{DOCUMENT_INTELLIGENCE_ENDPOINT}/formrecognizer/documentModels/{MODEL_ID}:analyze?api-version=2023-07-31"
     headers = {
         "Content-Type": "application/json",
         "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
     }
-    data = {"urlSource": f"https://{st.secrets['AZURE_STORAGE_ACCOUNT_NAME']}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"}
-    response = requests.post(url, headers=headers, json=data)
+    data = {"urlSource": url}
+    response = requests.post(request_url, headers=headers, json=data)
+    
     if response.status_code == 202:
         result_url = response.headers["Operation-Location"]
         return result_url
@@ -46,18 +51,31 @@ def analyze_pdf(blob_name):
         st.error("Error al analizar el documento.")
         return None
 
-def get_analysis_result(result_url):
-    # Esperamos 1 segundo antes de hacer la solicitud, para que la operación se procese
-    time.sleep(1)
+def insert_into_db(menu_data):
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
     
-    # Realizamos la solicitud para obtener el resultado del análisis
-    response = requests.get(result_url, headers={"Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY})
+    restaurante = menu_data.get("restaurant", "Desconocido")
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM Restaurante WHERE Nombre = ?)
+        BEGIN
+            INSERT INTO Restaurante (Nombre) VALUES (?)
+        END
+    """, restaurante, restaurante)
+    conn.commit()
+    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+    ID_Restaurante = cursor.fetchone()[0]
     
-    if response.status_code == 200:
-        return response.json()  # Devuelve el resultado como un diccionario
-    else:
-        st.error("Error al obtener el resultado del análisis.")
-        return None
+    for categoria, platos in menu_data.items():
+        if categoria not in ["restaurant", "precio"]:
+            for plato in platos:
+                cursor.execute("""
+                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                    VALUES (?, ?, ?, ?)
+                """, ID_Restaurante, plato, categoria, menu_data.get("precio", "No especificado"))
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 st.title("Subir PDF y extraer información con Document Intelligence")
 
@@ -67,15 +85,13 @@ if uploaded_file is not None:
     st.write(f"Archivo cargado: {uploaded_file.name}")
     
     if st.button("Subir y analizar PDF"):
+        # Subir el archivo al blob
         blob_name = upload_to_blob(uploaded_file)
         if blob_name:
+            # Analizar el archivo usando Document Intelligence
             result_url = analyze_pdf(blob_name)
             if result_url:
+                # Mostrar el JSON con los resultados
+                st.write("Resultado del análisis:")
+                st.json(result_url)  # Muestra el JSON del resultado
                 st.success("Análisis en proceso. Verifica los resultados más tarde.")
-                
-                # Obtener el resultado del análisis
-                result_data = get_analysis_result(result_url)
-                
-                if result_data:
-                    st.write("Datos extraídos del PDF:")
-                    st.json(result_data)  # Muestra el JSON con los datos extraídos
