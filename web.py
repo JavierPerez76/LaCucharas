@@ -19,7 +19,7 @@ def upload_to_blob(file):
         return False
 
 # Interfaz de Streamlit
-st.title("Subir PDF a Azure Blob Storage")
+st.title("Subir Menú")
 
 uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
 
