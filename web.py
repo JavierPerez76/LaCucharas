@@ -7,9 +7,12 @@ import time
 DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["DOCUMENT_INTELLIGENCE_ENDPOINT"]
 DOCUMENT_INTELLIGENCE_KEY = st.secrets["DOCUMENT_INTELLIGENCE_KEY"]
 MODEL_ID = st.secrets["MODEL_ID"]
+AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
+CONTAINER_NAME = st.secrets["CONTAINER_NAME"]
 
 def analyze_pdf(blob_name):
-    # Aquí colocarías la lógica para obtener la URL del archivo en Azure Blob Storage
+    # Obtener el nombre de la cuenta de almacenamiento desde la cadena de conexión
+    storage_account_name = AZURE_STORAGE_CONNECTION_STRING.split(';')[1].split('=')[1]  # Obtén el AccountName
     url = f"https://{storage_account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
     
     # Continuar con la lógica del análisis de PDF
