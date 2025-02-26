@@ -68,30 +68,30 @@ def format_result(result_data):
         "precio": "No especificado"
     }
 
-    # Extraemos las páginas del resultado
-    pages = result_data.get("analyzeResult", {}).get("pages", [])
+    # Extraemos los documentos
+    documents = result_data.get("analyzeResult", {}).get("documents", [])
     
-    for page in pages:
-        for field in page.get("fields", {}).values():
-            label = field.get("label", "").lower()
-            text = field.get("text", "")
+    for document in documents:
+        # Recorremos los campos dentro de cada documento
+        fields = document.get("fields", {})
+        
+        for field_name, field_data in fields.items():
+            # Aquí extraemos el valor del campo
+            field_value = field_data.get("valueString", "")
             
-            # Aquí estamos imprimiendo el JSON del resultado para verificar
-            st.write(f"Etiqueta: {label}, Texto: {text}")
-
             # Lógica de clasificación por etiquetas
-            if "restaurante" in label:
-                menu_data["restaurante"] = text
-            elif "primeros" in label:
-                menu_data["primeros"].append(text)
-            elif "segundos" in label:
-                menu_data["segundos"].append(text)
-            elif "postres" in label:
-                menu_data["postres"].append(text)
-            elif "bebidas" in label:
-                menu_data["bebidas"].append(text)
-            elif "precio" in label:
-                menu_data["precio"] = text
+            if "restaurante" in field_name.lower():
+                menu_data["restaurante"] = field_value
+            elif "primeros" in field_name.lower():
+                menu_data["primeros"].append(field_value)
+            elif "segundos" in field_name.lower():
+                menu_data["segundos"].append(field_value)
+            elif "postres" in field_name.lower():
+                menu_data["postres"].append(field_value)
+            elif "bebidas" in field_name.lower():
+                menu_data["bebidas"].append(field_value)
+            elif "precio" in field_name.lower():
+                menu_data["precio"] = field_value
 
     return menu_data
 
