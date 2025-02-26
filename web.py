@@ -59,21 +59,32 @@ def get_analysis_result(result_url):
         "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
     }
     
-    while True:
+    max_retries = 10
+    attempts = 0
+    progress_bar = st.progress(0)
+
+    while attempts < max_retries:
         response = requests.get(result_url, headers=headers)
         if response.status_code == 200:
             result_data = response.json()
             if result_data.get("status") == "succeeded":
-                return format_result(result_data)  # Devuelve el JSON con los resultados formateados
+                st.success("Análisis completado exitosamente.")
+                return format_result(result_data)
             elif result_data.get("status") == "failed":
                 st.error("El análisis falló.")
                 return None
             else:
+                progress = int((attempts + 1) / max_retries * 100)
+                progress_bar.progress(progress)
                 st.info("El análisis aún está en proceso. Esperando...")
                 time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
+                attempts += 1
         else:
             st.error("Error al obtener los resultados del análisis.")
             return None
+
+    st.error("El análisis no se completó dentro del tiempo esperado.")
+    return None
 
 def format_result(result_data):
     # Formatear el resultado en el formato deseado
@@ -108,7 +119,7 @@ def insert_into_db(menu_data):
     cursor = conn.cursor()
     
     restaurante = menu_data.get("restaurant", "Desconocido")
-    cursor.execute("""
+    cursor.execute(""" 
         IF NOT EXISTS (SELECT 1 FROM Restaurante WHERE Nombre = ?)
         BEGIN
             INSERT INTO Restaurante (Nombre) VALUES (?)
