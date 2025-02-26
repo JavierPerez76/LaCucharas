@@ -61,14 +61,11 @@ def get_analysis_result(result_url):
     
     max_retries = 10
     attempts = 0
-    progress_bar = st.progress(0)
 
     while attempts < max_retries:
         response = requests.get(result_url, headers=headers)
         if response.status_code == 200:
             result_data = response.json()
-            st.write("Resultado completo de la operación:")
-            st.json(result_data)  # Imprime el resultado completo para depuración
             if result_data.get("status") == "succeeded":
                 st.success("Análisis completado exitosamente.")
                 return format_result(result_data)
@@ -76,9 +73,6 @@ def get_analysis_result(result_url):
                 st.error("El análisis falló.")
                 return None
             else:
-                progress = int((attempts + 1) / max_retries * 100)
-                progress_bar.progress(progress)
-                st.info("El análisis aún está en proceso. Esperando...")
                 time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
                 attempts += 1
         else:
