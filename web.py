@@ -58,18 +58,22 @@ def get_analysis_result(result_url):
     headers = {
         "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
     }
-    response = requests.get(result_url, headers=headers)
     
-    # Esperamos hasta que el análisis esté completo
-    while response.status_code == 202:
-        time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
+    while True:
         response = requests.get(result_url, headers=headers)
-    
-    if response.status_code == 200:
-        return response.json()  # Devuelve el JSON con los resultados
-    else:
-        st.error("Error al obtener los resultados del análisis.")
-        return None
+        if response.status_code == 200:
+            result_data = response.json()
+            if result_data.get("status") == "succeeded":
+                return result_data  # Devuelve el JSON con los resultados
+            elif result_data.get("status") == "failed":
+                st.error("El análisis falló.")
+                return None
+            else:
+                st.info("El análisis aún está en proceso. Esperando...")
+                time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
+        else:
+            st.error("Error al obtener los resultados del análisis.")
+            return None
 
 def insert_into_db(menu_data):
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
