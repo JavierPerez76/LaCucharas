@@ -50,7 +50,7 @@ def analyze_pdf(blob_name):
         result_url = response.headers["Operation-Location"]
         return result_url
     else:
-        st.error("Error al analizar el documento.")
+        st.error(f"Error al analizar el documento: {response.text}")
         return None
 
 def get_analysis_result(result_url):
@@ -64,8 +64,11 @@ def get_analysis_result(result_url):
 
     while attempts < max_retries:
         response = requests.get(result_url, headers=headers)
+        
+        # Mostrar la respuesta del servidor para depuración
         if response.status_code == 200:
             result_data = response.json()
+            st.write("Respuesta de la API:", json.dumps(result_data, indent=4))  # Imprimir el JSON de respuesta
             if result_data.get("status") == "succeeded":
                 st.success("Análisis completado exitosamente.")
                 return format_result(result_data)
@@ -76,7 +79,7 @@ def get_analysis_result(result_url):
                 time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
                 attempts += 1
         else:
-            st.error("Error al obtener los resultados del análisis.")
+            st.error(f"Error al obtener los resultados del análisis: {response.text}")
             return None
 
     st.error("El análisis no se completó dentro del tiempo esperado.")
