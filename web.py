@@ -64,7 +64,7 @@ def get_analysis_result(result_url):
         if response.status_code == 200:
             result_data = response.json()
             if result_data.get("status") == "succeeded":
-                return result_data  # Devuelve el JSON con los resultados
+                return format_result(result_data)  # Devuelve el JSON con los resultados formateados
             elif result_data.get("status") == "failed":
                 st.error("El análisis falló.")
                 return None
@@ -74,6 +74,30 @@ def get_analysis_result(result_url):
         else:
             st.error("Error al obtener los resultados del análisis.")
             return None
+
+def format_result(result_data):
+    # Formatear el resultado en el formato deseado
+    formatted_result = {
+        "$schema": "https://schema.cognitiveservices.azure.com/formrecognizer/2021-03-01/labels.json",
+        "document": result_data.get("analyzeResult", {}).get("metadata", {}).get("docType", "desconocido"),
+        "labels": []
+    }
+    
+    for page in result_data.get("analyzeResult", {}).get("documents", []):
+        for label in page.get("fields", {}).values():
+            label_name = label.get("label", "Desconocido")
+            label_value = label.get("value", [])
+            
+            formatted_result["labels"].append({
+                "label": label_name,
+                "value": [{
+                    "page": label_value.get("page", "Desconocido"),
+                    "text": label_value.get("text", ""),
+                    "boundingBoxes": label_value.get("boundingBox", [])
+                }]
+            })
+    
+    return formatted_result
 
 def insert_into_db(menu_data):
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
@@ -118,7 +142,7 @@ if uploaded_file is not None:
                 # Obtener los resultados del análisis
                 result_data = get_analysis_result(result_url)
                 if result_data:
-                    # Mostrar el JSON con los resultados
+                    # Mostrar el JSON con los resultados formateados
                     st.write("Resultado del análisis:")
                     st.json(result_data)  # Muestra el JSON del resultado
                     st.success("Análisis completado.")
