@@ -43,9 +43,6 @@ def get_analysis_result(result_url):
         if response.status_code == 200:
             result_data = response.json()
             if result_data.get("status") == "succeeded":
-                # Imprimir el JSON completo del resultado del análisis
-                st.write("JSON del resultado del análisis:")
-                st.json(result_data)  # Muestra el JSON completo
                 return result_data
             elif result_data.get("status") == "failed":
                 st.error("El análisis falló.")
@@ -88,7 +85,7 @@ def format_result(result_data):
                 menu_data["segundos"].append(field_value)
             elif "postres" in field_name.lower():
                 menu_data["postres"].append(field_value)
-            elif "bebidas" in field_name.lower():
+            elif "bebida" in field_name.lower():  # Se ajusta a "bebida"
                 menu_data["bebidas"].append(field_value)
             elif "precio" in field_name.lower():
                 menu_data["precio"] = field_value
@@ -112,7 +109,7 @@ if uploaded_file is not None:
                 # Formatear el resultado para extraer los datos
                 menu_data = format_result(result_data)
                 
-                # Mostrar los resultados extraídos
+                # Mostrar los resultados extraídos sin mostrar el JSON completo
                 st.write("Información extraída:")
                 st.write(f"Restaurante: {menu_data['restaurante']}")
                 st.write(f"Primeros: {', '.join(menu_data['primeros'])}")
