@@ -67,6 +67,8 @@ def get_analysis_result(result_url):
         response = requests.get(result_url, headers=headers)
         if response.status_code == 200:
             result_data = response.json()
+            st.write("Resultado completo de la operación:")
+            st.json(result_data)  # Imprime el resultado completo para depuración
             if result_data.get("status") == "succeeded":
                 st.success("Análisis completado exitosamente.")
                 return format_result(result_data)
@@ -132,7 +134,7 @@ def insert_into_db(menu_data):
     for categoria, platos in menu_data.items():
         if categoria not in ["restaurant", "precio"]:
             for plato in platos:
-                cursor.execute("""
+                cursor.execute(""" 
                     INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
                     VALUES (?, ?, ?, ?)
                 """, ID_Restaurante, plato, categoria, menu_data.get("precio", "No especificado"))
