@@ -3,6 +3,7 @@ from azure.storage.blob import BlobServiceClient
 import requests
 import json
 import pyodbc
+import time
 
 # Configuración de la conexión a Azure Blob Storage
 AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
@@ -45,10 +46,29 @@ def analyze_pdf(blob_name):
     response = requests.post(request_url, headers=headers, json=data)
     
     if response.status_code == 202:
+        # Si la solicitud fue exitosa, obtenemos la URL de operación
         result_url = response.headers["Operation-Location"]
         return result_url
     else:
         st.error("Error al analizar el documento.")
+        return None
+
+def get_analysis_result(result_url):
+    # Hacer una solicitud GET a la URL de la operación para obtener los resultados finales
+    headers = {
+        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
+    }
+    response = requests.get(result_url, headers=headers)
+    
+    # Esperamos hasta que el análisis esté completo
+    while response.status_code == 202:
+        time.sleep(5)  # Esperamos 5 segundos antes de volver a verificar
+        response = requests.get(result_url, headers=headers)
+    
+    if response.status_code == 200:
+        return response.json()  # Devuelve el JSON con los resultados
+    else:
+        st.error("Error al obtener los resultados del análisis.")
         return None
 
 def insert_into_db(menu_data):
@@ -91,7 +111,10 @@ if uploaded_file is not None:
             # Analizar el archivo usando Document Intelligence
             result_url = analyze_pdf(blob_name)
             if result_url:
-                # Mostrar el JSON con los resultados
-                st.write("Resultado del análisis:")
-                st.json(result_url)  # Muestra el JSON del resultado
-                st.success("Análisis en proceso. Verifica los resultados más tarde.")
+                # Obtener los resultados del análisis
+                result_data = get_analysis_result(result_url)
+                if result_data:
+                    # Mostrar el JSON con los resultados
+                    st.write("Resultado del análisis:")
+                    st.json(result_data)  # Muestra el JSON del resultado
+                    st.success("Análisis completado.")
