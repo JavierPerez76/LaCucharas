@@ -7,17 +7,20 @@ import json
 import time
 from limpieza_datos import limpiar_y_guardar_datos  # Importamos el script de limpieza de datos
 
-# Obtener credenciales desde Streamlit secrets
-AZURE_STORAGE_CONNECTION_STRING = st.secrets["azure"]["AZURE_STORAGE_CONNECTION_STRING"]
-CONTAINER_NAME = st.secrets["azure"]["CONTAINER_NAME"]
-DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["azure"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
-DOCUMENT_INTELLIGENCE_KEY = st.secrets["azure"]["DOCUMENT_INTELLIGENCE_KEY"]
-MODEL_ID = st.secrets["azure"]["MODEL_ID"]
+# Configuración de la conexión a Azure Blob Storage
+AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
+CONTAINER_NAME = st.secrets["CONTAINER_NAME"]
 
-DB_SERVER = st.secrets["database"]["DB_SERVER"]
-DB_DATABASE = st.secrets["database"]["DB_DATABASE"]
-DB_USERNAME = st.secrets["database"]["DB_USERNAME"]
-DB_PASSWORD = st.secrets["database"]["DB_PASSWORD"]
+# Configuración de Azure Document Intelligence
+DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["DOCUMENT_INTELLIGENCE_ENDPOINT"]
+DOCUMENT_INTELLIGENCE_KEY = st.secrets["DOCUMENT_INTELLIGENCE_KEY"]
+MODEL_ID = st.secrets["MODEL_ID"]
+
+# Configuración de la base de datos SQL Server
+DB_SERVER = st.secrets["DB_SERVER"]
+DB_DATABASE = st.secrets["DB_DATABASE"]
+DB_USERNAME = st.secrets["DB_USERNAME"]
+DB_PASSWORD = st.secrets["DB_PASSWORD"]
 
 def verificar_restaurante(restaurante):
     # Conectar a la base de datos
@@ -128,7 +131,9 @@ def limpiar_y_guardar_datos(data):
     ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
     
     if not existe:
-        st.write("Restaurante creado y registrado correctamente.")
+        st.write(f"Restaurante {data['restaurante']} creado correctamente.")
+    else:
+        st.write(f"Restaurante {data['restaurante']} ya existe. Usando la información existente.")
     
     # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
