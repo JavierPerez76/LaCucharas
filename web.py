@@ -5,7 +5,22 @@ from azure.storage.blob import BlobServiceClient
 import requests
 import json
 import time
-from limpieza_datos import limpiar_y_guardar_datos  # Importamos el script de limpieza de datos
+
+# Función de limpieza de datos
+def limpiar_datos(data):
+    cleaned_data = {
+        "restaurante": data.get("restaurante", "").strip(),
+        "primeros": [plato.strip() for plato in data.get("primeros", []) if plato.strip()],
+        "segundos": [plato.strip() for plato in data.get("segundos", []) if plato.strip()],
+        "postres": [plato.strip() for plato in data.get("postres", []) if plato.strip()],
+        "bebidas": [plato.strip() for plato in data.get("bebidas", []) if plato.strip()],
+        "precio": data.get("precio", "No especificado").strip()
+    }
+    
+    if cleaned_data["restaurante"] == "Desconocido" or not cleaned_data["restaurante"]:
+        cleaned_data["restaurante"] = "Desconocido"
+
+    return cleaned_data
 
 # Configuración de la conexión a Azure Blob Storage
 AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE"]["AZURE_STORAGE_CONNECTION_STRING"]
@@ -23,7 +38,6 @@ DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
 DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
 
 def verificar_restaurante(restaurante):
-    # Conectar a la base de datos
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
 
@@ -31,10 +45,8 @@ def verificar_restaurante(restaurante):
     result = cursor.fetchone()
 
     if result:
-        # Restaurante ya existe, devolver el ID
         return result[0], True
     else:
-        # Restaurante no existe, devolver None
         conn.close()
         return None, False
 
@@ -119,34 +131,27 @@ def extraer_informacion(result_data):
 
     return data
 
-# Función que limpia los datos y los inserta en la base de datos
 def limpiar_y_guardar_datos(data):
-    # Limpiar los datos antes de insertarlos
     data = limpiar_datos(data)
 
-    # Verificar si el restaurante existe en la base de datos
     ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
 
     if not existe:
         st.error(f"El restaurante '{data['restaurante']}' no existe en la base de datos. No se puede registrar el menú.")
         return
 
-    # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
 
-    # Insertar los platos en la tabla Plato
     for categoria, platos in data.items():
         if categoria not in ["restaurante", "precio"]:
             for plato in platos:
-                # Insertar solo si el plato no está vacío
                 if plato:
                     cursor.execute(""" 
                         INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
                         VALUES (?, ?, ?, ?)
                     """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
 
-    # Insertar en MenuDiario si hay precios válidos
     if data["precio"]:
         fecha = datetime.now().date()
         cursor.execute(""" 
@@ -160,17 +165,12 @@ def limpiar_y_guardar_datos(data):
 
     st.success("Datos del restaurante y menú diario registrados correctamente.")
 
-# --- Interfaz de usuario ---
 st.title("Subir PDF y extraer información con Document Intelligence")
 
-# Ingresar el nombre del restaurante
 restaurante_nombre = st.text_input("Ingrese el nombre del restaurante")
-
-# Subir y analizar el archivo PDF
 uploaded_file = st.file_uploader("Subir archivo PDF de menú", type=["pdf"])
 
 if uploaded_file is not None and restaurante_nombre:
-    # Subir el archivo a Azure Blob Storage
     blob_name = upload_to_blob(uploaded_file)
     if blob_name:
         result_url = analyze_pdf(blob_name)
