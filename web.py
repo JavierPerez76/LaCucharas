@@ -32,7 +32,6 @@ def verificar_restaurante(restaurante):
 
     if result:
         # Restaurante ya existe, devolver el ID
-        return result[0]
         return result[0], True
     else:
         # Restaurante no existe, insertar y devolver el nuevo ID
@@ -43,9 +42,7 @@ def verificar_restaurante(restaurante):
         ID_Restaurante = cursor.fetchone()[0]
         
         conn.close()
-        return ID_Restaurante
-        # Restaurante no existe, devolver False
-        return None, False
+        return ID_Restaurante, False
 
 def registrar_restaurante(nombre, direccion, telefono, tipo_cocina):
     # Conectar a la base de datos
@@ -154,9 +151,11 @@ def limpiar_y_guardar_datos(data):
     data = limpiar_datos(data)
 
     # Verificar y registrar el restaurante
-    ID_Restaurante = verificar_restaurante(data["restaurante"])
-    ID_Restaurante = verificar_restaurante(data["restaurante"])[0]
+    ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
 
+    if not existe:
+        st.warning(f"Restaurante '{data['restaurante']}' no existe en la base de datos. Se creará un nuevo registro.")
+    
     # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
@@ -195,15 +194,11 @@ restaurante_nombre = st.text_input("Nombre del restaurante")
 
 if st.button("Crear Restaurante"):
     if restaurante_nombre:
-        ID_Restaurante = verificar_restaurante(restaurante_nombre)
-        st.success(f"Restaurante '{restaurante_nombre}' registrado o ya existente con ID: {ID_Restaurante}")
         ID_Restaurante, existe = verificar_restaurante(restaurante_nombre)
         if existe:
             st.success(f"Restaurante '{restaurante_nombre}' ya registrado con ID: {ID_Restaurante}")
         else:
-            # Si no existe, pedir más detalles
-            st.info(f"Restaurante '{restaurante_nombre}' no encontrado. Por favor, ingrese los detalles.")
-            
+            st.info(f"Restaurante '{restaurante_nombre}' no encontrado. Se creará un nuevo registro.")
             direccion = st.text_input("Dirección del restaurante")
             telefono = st.text_input("Teléfono del restaurante")
             tipo_cocina = st.text_input("Tipo de cocina del restaurante")
@@ -218,25 +213,14 @@ if st.button("Crear Restaurante"):
         st.error("Por favor, ingrese un nombre para el restaurante.")
 
 # Subir y analizar el archivo PDF
-uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
+uploaded_file = st.file_uploader("Subir archivo PDF de menú", type=["pdf"])
 
 if uploaded_file is not None:
-    st.write(f"Archivo cargado: {uploaded_file.name}")
-
-    if st.button("Subir y analizar PDF"):
-        # Subir el archivo al blob
-        blob_name = upload_to_blob(uploaded_file)
-        if blob_name:
-            # Analizar el archivo usando Document Intelligence
-            result_url = analyze_pdf(blob_name)
-            if result_url:
-                # Obtener los resultados del análisis
-                result_data = get_analysis_result(result_url)
-                if result_data:
-                    # Extraer la información relevante del resultado
-                    extracted_data = extraer_informacion(result_data)
-                    st.write("Información extraída:")
-                    st.write(extracted_data)
-                    # Llamar a la función para limpiar y guardar los datos
-                    limpiar_y_guardar_datos(extracted_data)
-                    st.success("Análisis completado.")
+    blob_name = upload_to_blob(uploaded_file)
+    if blob_name:
+        result_url = analyze_pdf(blob_name)
+        if result_url:
+            result_data = get_analysis_result(result_url)
+            if result_data:
+                data = extraer_informacion(result_data)
+                limpiar_y_guardar_datos(data)
