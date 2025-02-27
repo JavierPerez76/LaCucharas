@@ -22,8 +22,14 @@ DB_DATABASE = st.secrets["DB_DATABASE"]
 DB_USERNAME = st.secrets["DB_USERNAME"]
 DB_PASSWORD = st.secrets["DB_PASSWORD"]
 
+# Función de autenticación
+def login(username, password):
+    correct_username = st.secrets["USERNAME"]
+    correct_password = st.secrets["PASSWORD"]
+    return username == correct_username and password == correct_password
+
+# Función para verificar y registrar un restaurante
 def verificar_restaurante(restaurante):
-    # Conectar a la base de datos
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
     
@@ -31,10 +37,8 @@ def verificar_restaurante(restaurante):
     result = cursor.fetchone()
     
     if result:
-        # Restaurante ya existe, devolver el ID
         return result[0]
     else:
-        # Restaurante no existe, insertar y devolver el nuevo ID
         cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
         conn.commit()
         
@@ -44,6 +48,7 @@ def verificar_restaurante(restaurante):
         conn.close()
         return ID_Restaurante
 
+# Función para subir el archivo a Azure Blob Storage
 def upload_to_blob(file):
     try:
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
@@ -55,6 +60,7 @@ def upload_to_blob(file):
         st.error(f"Error al subir el archivo: {e}")
         return None
 
+# Función para analizar el PDF usando Document Intelligence
 def analyze_pdf(blob_name):
     storage_account_name = AZURE_STORAGE_CONNECTION_STRING.split(';')[1].split('=')[1]  
     url = f"https://{storage_account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
@@ -74,6 +80,7 @@ def analyze_pdf(blob_name):
         st.error("Error al analizar el documento.")
         return None
 
+# Función para obtener los resultados del análisis
 def get_analysis_result(result_url):
     headers = {
         "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
@@ -95,6 +102,7 @@ def get_analysis_result(result_url):
             st.error("Error al obtener los resultados del análisis.")
             return None
 
+# Función para extraer la información relevante del análisis
 def extraer_informacion(result_data):
     data = {
         "restaurante": "Desconocido",
@@ -145,7 +153,7 @@ def limpiar_y_guardar_datos(data):
     
     # Insertar en MenuDiario
     fecha = datetime.now().date()
-    cursor.execute("""
+    cursor.execute(""" 
         INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
         VALUES (?, ?, ?, ?)
     """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
@@ -156,6 +164,28 @@ def limpiar_y_guardar_datos(data):
     
     st.success("Datos del restaurante y menú diario registrados correctamente.")
 
+# Página de inicio de sesión
+st.title("Iniciar sesión")
+
+username = st.text_input("Usuario", "")
+password = st.text_input("Contraseña", "", type="password")
+
+if st.button("Iniciar sesión"):
+    if login(username, password):
+        st.success("¡Has iniciado sesión correctamente!")
+        
+        # Después de iniciar sesión, seleccionar o crear el restaurante
+        restaurante = st.text_input("Nombre del restaurante")
+        if st.button("Verificar o crear restaurante"):
+            if restaurante:
+                ID_Restaurante = verificar_restaurante(restaurante)
+                st.write(f"ID del restaurante: {ID_Restaurante}")
+            else:
+                st.error("Por favor, ingresa un nombre para el restaurante.")
+    else:
+        st.error("Usuario o contraseña incorrectos.")
+
+# Subir PDF y extraer información con Document Intelligence
 st.title("Subir PDF y extraer información con Document Intelligence")
 
 uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
