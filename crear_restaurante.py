@@ -1,36 +1,42 @@
 import streamlit as st
 import pyodbc
 
-# Configuración de la base de datos SQL Server
-DB_SERVER = st.secrets["DB"]["DB_SERVER"]
-DB_DATABASE = st.secrets["DB"]["DB_DATABASE"]
-DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
-DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
+# Configuración de la base de datos
+DB_SERVER = "menuserver.database.windows.net"
+DB_DATABASE = "menudb"
+DB_USERNAME = "usuario"
+DB_PASSWORD = "Javi123+"
 
-def crear_restaurante(nombre, direccion, telefono, tipo):
-    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-    cursor = conn.cursor()
+def crear_restaurante():
+    st.title("Crear Restaurante")
 
-    cursor.execute("""
-        INSERT INTO Restaurante (Nombre, Direccion, Telefono, Tipo)
-        VALUES (?, ?, ?, ?)
-    """, nombre, direccion, telefono, tipo)
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+    # Formulario para ingresar los datos del restaurante
+    restaurante_nombre = st.text_input("Nombre del restaurante")
+    restaurante_direccion = st.text_input("Dirección")
+    restaurante_telefono = st.text_input("Teléfono")
+    restaurante_email = st.text_input("Email")
+    restaurante_categorias = st.text_input("Categorías (separadas por comas)")
 
-    st.success(f"Restaurante {nombre} creado correctamente.")
+    # Botón para guardar los datos del restaurante
+    if st.button("Crear Restaurante"):
+        if restaurante_nombre and restaurante_direccion and restaurante_telefono and restaurante_email:
+            try:
+                # Conectar a la base de datos
+                conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+                cursor = conn.cursor()
 
-st.title("Crear Restaurante")
+                # Insertar el restaurante en la base de datos
+                cursor.execute("""
+                    INSERT INTO Restaurante (Nombre, Direccion, Telefono, Email, Categorias)
+                    VALUES (?, ?, ?, ?, ?)
+                """, restaurante_nombre, restaurante_direccion, restaurante_telefono, restaurante_email, restaurante_categorias)
 
-nombre = st.text_input("Nombre del restaurante")
-direccion = st.text_input("Dirección")
-telefono = st.text_input("Teléfono")
-tipo = st.selectbox("Tipo de restaurante", ["Fast Food", "Casual Dining", "Fine Dining", "Buffet"])
+                conn.commit()
+                cursor.close()
+                conn.close()
 
-if st.button("Crear Restaurante"):
-    if nombre and direccion and telefono and tipo:
-        crear_restaurante(nombre, direccion, telefono, tipo)
-    else:
-        st.error("Por favor, completa todos los campos.")
+                st.success("Restaurante creado correctamente.")
+            except Exception as e:
+                st.error(f"Error al crear el restaurante: {e}")
+        else:
+            st.error("Por favor, complete todos los campos.")
