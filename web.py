@@ -34,35 +34,9 @@ def verificar_restaurante(restaurante):
         # Restaurante ya existe, devolver el ID
         return result[0], True
     else:
-        # Restaurante no existe, insertar y devolver el nuevo ID
-        cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
-        conn.commit()
-        
-        cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
-        ID_Restaurante = cursor.fetchone()[0]
-        
+        # Restaurante no existe, devolver None
         conn.close()
-        return ID_Restaurante, False
-
-def registrar_restaurante(nombre, direccion, telefono, tipo_cocina):
-    # Conectar a la base de datos
-    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-    cursor = conn.cursor()
-    
-    # Insertar el nuevo restaurante
-    cursor.execute(""" 
-        INSERT INTO Restaurante (Nombre, Direccion, Telefono, Tipo_Cocina)
-        VALUES (?, ?, ?, ?)
-    """, nombre, direccion, telefono, tipo_cocina)
-    
-    conn.commit()
-    
-    # Obtener el ID del restaurante recién registrado
-    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", nombre)
-    ID_Restaurante = cursor.fetchone()[0]
-    
-    conn.close()
-    return ID_Restaurante
+        return None, False
 
 def upload_to_blob(file):
     try:
@@ -150,12 +124,13 @@ def limpiar_y_guardar_datos(data):
     # Limpiar los datos antes de insertarlos
     data = limpiar_datos(data)
 
-    # Verificar y registrar el restaurante
+    # Verificar si el restaurante existe en la base de datos
     ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
 
     if not existe:
-        st.warning(f"Restaurante '{data['restaurante']}' no existe en la base de datos. Se creará un nuevo registro.")
-    
+        st.error(f"El restaurante '{data['restaurante']}' no existe en la base de datos. No se puede registrar el menú.")
+        return
+
     # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
@@ -188,34 +163,14 @@ def limpiar_y_guardar_datos(data):
 # --- Interfaz de usuario ---
 st.title("Subir PDF y extraer información con Document Intelligence")
 
-# Formulario de creación de restaurante
-st.subheader("Crear o seleccionar un restaurante")
-restaurante_nombre = st.text_input("Nombre del restaurante")
-
-if st.button("Crear Restaurante"):
-    if restaurante_nombre:
-        ID_Restaurante, existe = verificar_restaurante(restaurante_nombre)
-        if existe:
-            st.success(f"Restaurante '{restaurante_nombre}' ya registrado con ID: {ID_Restaurante}")
-        else:
-            st.info(f"Restaurante '{restaurante_nombre}' no encontrado. Se creará un nuevo registro.")
-            direccion = st.text_input("Dirección del restaurante")
-            telefono = st.text_input("Teléfono del restaurante")
-            tipo_cocina = st.text_input("Tipo de cocina del restaurante")
-            
-            if st.button("Registrar Restaurante"):
-                if direccion and telefono and tipo_cocina:
-                    ID_Restaurante = registrar_restaurante(restaurante_nombre, direccion, telefono, tipo_cocina)
-                    st.success(f"Restaurante '{restaurante_nombre}' registrado exitosamente con ID: {ID_Restaurante}")
-                else:
-                    st.error("Por favor, complete todos los campos antes de registrar el restaurante.")
-    else:
-        st.error("Por favor, ingrese un nombre para el restaurante.")
+# Ingresar el nombre del restaurante
+restaurante_nombre = st.text_input("Ingrese el nombre del restaurante")
 
 # Subir y analizar el archivo PDF
 uploaded_file = st.file_uploader("Subir archivo PDF de menú", type=["pdf"])
 
-if uploaded_file is not None:
+if uploaded_file is not None and restaurante_nombre:
+    # Subir el archivo a Azure Blob Storage
     blob_name = upload_to_blob(uploaded_file)
     if blob_name:
         result_url = analyze_pdf(blob_name)
