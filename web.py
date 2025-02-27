@@ -37,22 +37,24 @@ DB_DATABASE = st.secrets["DB"]["DB_DATABASE"]
 DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
 DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
 
-def verificar_restaurante(restaurante):
+def verificar_restaurante(restaurante_usuario):
     try:
         conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
         cursor = conn.cursor()
 
-        cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+        cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante_usuario)
         result = cursor.fetchone()
 
         if result:
             return result[0], True
         else:
+            st.error(f"El restaurante '{restaurante_usuario}' no existe en la base de datos.")
             conn.close()
             return None, False
     except pyodbc.Error as e:
         st.error(f"Error al conectar con la base de datos: {e}")
         return None, False
+
 
 
 def upload_to_blob(file):
