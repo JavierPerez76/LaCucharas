@@ -8,19 +8,19 @@ import time
 from limpieza_datos import limpiar_y_guardar_datos  # Importamos el script de limpieza de datos
 
 # Configuración de la conexión a Azure Blob Storage
-AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
-CONTAINER_NAME = st.secrets["CONTAINER_NAME"]
+AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE"]["AZURE_STORAGE_CONNECTION_STRING"]
+CONTAINER_NAME = st.secrets["AZURE"]["CONTAINER_NAME"]
 
 # Configuración de Azure Document Intelligence
-DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["DOCUMENT_INTELLIGENCE_ENDPOINT"]
-DOCUMENT_INTELLIGENCE_KEY = st.secrets["DOCUMENT_INTELLIGENCE_KEY"]
-MODEL_ID = st.secrets["MODEL_ID"]
+DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
+DOCUMENT_INTELLIGENCE_KEY = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_KEY"]
+MODEL_ID = st.secrets["AZURE"]["MODEL_ID"]
 
 # Configuración de la base de datos SQL Server
-DB_SERVER = st.secrets["DB_SERVER"]
-DB_DATABASE = st.secrets["DB_DATABASE"]
-DB_USERNAME = st.secrets["DB_USERNAME"]
-DB_PASSWORD = st.secrets["DB_PASSWORD"]
+DB_SERVER = st.secrets["DB"]["DB_SERVER"]
+DB_DATABASE = st.secrets["DB"]["DB_DATABASE"]
+DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
+DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
 
 def verificar_restaurante(restaurante):
     # Conectar a la base de datos
@@ -32,7 +32,7 @@ def verificar_restaurante(restaurante):
     
     if result:
         # Restaurante ya existe, devolver el ID
-        return result[0], True
+        return result[0]
     else:
         # Restaurante no existe, insertar y devolver el nuevo ID
         cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
@@ -42,7 +42,7 @@ def verificar_restaurante(restaurante):
         ID_Restaurante = cursor.fetchone()[0]
         
         conn.close()
-        return ID_Restaurante, False
+        return ID_Restaurante
 
 def upload_to_blob(file):
     try:
@@ -128,12 +128,7 @@ def extraer_informacion(result_data):
 # Función que limpia los datos y los inserta en la base de datos
 def limpiar_y_guardar_datos(data):
     # Verificar y registrar el restaurante
-    ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
-    
-    if not existe:
-        st.write(f"Restaurante {data['restaurante']} creado correctamente.")
-    else:
-        st.write(f"Restaurante {data['restaurante']} ya existe. Usando la información existente.")
+    ID_Restaurante = verificar_restaurante(data["restaurante"])
     
     # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
