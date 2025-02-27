@@ -7,9 +7,9 @@ import json
 import time
 
 # Función de limpieza de datos
-def limpiar_datos(data):
+def limpiar_datos(data, restaurante_usuario):
     cleaned_data = {
-        "restaurante": data.get("restaurante", "").strip(),
+        "restaurante": restaurante_usuario.strip(),  # Usamos el restaurante que ingresa el usuario
         "primeros": [plato.strip() for plato in data.get("primeros", []) if plato.strip()],
         "segundos": [plato.strip() for plato in data.get("segundos", []) if plato.strip()],
         "postres": [plato.strip() for plato in data.get("postres", []) if plato.strip()],
@@ -54,23 +54,6 @@ def verificar_restaurante(restaurante_usuario):
     except pyodbc.Error as e:
         st.error(f"Error al conectar con la base de datos: {e}")
         return None, False
-
-def borrar_menus_existentes(ID_Restaurante):
-    try:
-        conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-        cursor = conn.cursor()
-
-        # Borrar los platos del restaurante
-        cursor.execute("DELETE FROM Plato WHERE ID_Restaurante = ?", ID_Restaurante)
-
-        # Borrar el menú diario del restaurante
-        cursor.execute("DELETE FROM MenuDiario WHERE ID_Restaurante = ?", ID_Restaurante)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except pyodbc.Error as e:
-        st.error(f"Error al borrar los menús existentes: {e}")
 
 def upload_to_blob(file):
     try:
@@ -153,8 +136,8 @@ def extraer_informacion(result_data):
 
     return data
 
-def limpiar_y_guardar_datos(data):
-    data = limpiar_datos(data)
+def limpiar_y_guardar_datos(data, restaurante_nombre):
+    data = limpiar_datos(data, restaurante_nombre)
 
     ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
 
@@ -162,12 +145,15 @@ def limpiar_y_guardar_datos(data):
         st.error(f"El restaurante '{data['restaurante']}' no existe en la base de datos. No se puede registrar el menú.")
         return
 
-    # Borrar los menús existentes antes de guardar los nuevos datos
-    borrar_menus_existentes(ID_Restaurante)
-
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
 
+    # Borrar los menús anteriores
+    cursor.execute("""
+        DELETE FROM Plato WHERE ID_Restaurante = ?
+    """, ID_Restaurante)
+
+    # Insertar nuevos platos
     for categoria, platos in data.items():
         if categoria not in ["restaurante", "precio"]:
             for plato in platos:
@@ -177,6 +163,7 @@ def limpiar_y_guardar_datos(data):
                         VALUES (?, ?, ?, ?)
                     """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
 
+    # Insertar menú diario
     if data["precio"]:
         fecha = datetime.now().date()
         cursor.execute(""" 
@@ -203,4 +190,4 @@ if uploaded_file is not None and restaurante_nombre:
             result_data = get_analysis_result(result_url)
             if result_data:
                 data = extraer_informacion(result_data)
-                limpiar_y_guardar_datos(data)
+                limpiar_y_guardar_datos(data, restaurante_nombre)  # Pasamos el restaurante_nombre como argumento
