@@ -1,130 +1,242 @@
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-from azure.storage.blob import BlobServiceClient
-import json
+import streamlit as st
 import pyodbc
+from datetime import datetime
+from azure.storage.blob import BlobServiceClient
+import requests
+import json
+import time
+from limpieza_datos import limpiar_y_guardar_datos  # Importamos el script de limpieza de datos
 
-# Configurar la conexión a Azure Key Vault
-key_vault_url = "https://<nombre-de-tu-keyvault>.vault.azure.net/"
-credential = DefaultAzureCredential()
-secret_client = SecretClient(vault_url=key_vault_url, credential=credential)
+# Configuración de la conexión a Azure Blob Storage
+AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE"]["AZURE_STORAGE_CONNECTION_STRING"]
+CONTAINER_NAME = st.secrets["AZURE"]["CONTAINER_NAME"]
 
-# Obtener secretos desde Key Vault
-AZURE_STORAGE_CONNECTION_STRING = secret_client.get_secret("AZURE_STORAGE_CONNECTION_STRING").value
-CONTAINER_NAME = secret_client.get_secret("CONTAINER_NAME").value
-DOCUMENT_INTELLIGENCE_ENDPOINT = secret_client.get_secret("DOCUMENT_INTELLIGENCE_ENDPOINT").value
-DOCUMENT_INTELLIGENCE_KEY = secret_client.get_secret("DOCUMENT_INTELLIGENCE_KEY").value
-MODEL_ID = secret_client.get_secret("MODEL_ID").value
+# Configuración de Azure Document Intelligence
+DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
+DOCUMENT_INTELLIGENCE_KEY = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_KEY"]
+MODEL_ID = st.secrets["AZURE"]["MODEL_ID"]
 
-DB_SERVER = secret_client.get_secret("DB_SERVER").value
-DB_DATABASE = secret_client.get_secret("DB_DATABASE").value
-DB_USERNAME = secret_client.get_secret("DB_USERNAME").value
-DB_PASSWORD = secret_client.get_secret("DB_PASSWORD").value
+# Configuración de la base de datos SQL Server
+DB_SERVER = st.secrets["DB"]["DB_SERVER"]
+DB_DATABASE = st.secrets["DB"]["DB_DATABASE"]
+DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
+DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
 
-# Conectar con el Blob Storage
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
-container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+def verificar_restaurante(restaurante):
+    # Conectar a la base de datos
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
 
-# Obtener la lista de blobs que terminan en .pdf.labels.json
-blobs = [blob.name for blob in container_client.list_blobs() if blob.name.endswith(".pdf.labels.json")]
+    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+    result = cursor.fetchone()
 
-# Conectar con la base de datos SQL Server
-conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-cursor = conn.cursor()
-
-# Función para procesar cada blob
-def procesar_json(blob_name):
-    try:
-        blob_client = container_client.get_blob_client(blob_name)
-        blob_data = blob_client.download_blob().readall()
-        menu_data = json.loads(blob_data.decode('utf-8'))
-
-        restaurante = None
-        primeros, segundos, postres, bebidas = [], [], [], []
-        precio = "No especificado"
-
-        for label in menu_data.get("labels", []):
-            label_name = label.get("label", "").lower()
-            if label_name == "restaurante":
-                restaurante = label.get("value", [{}])[0].get("text", "Desconocido").strip()
-            elif label_name == "primeros":
-                primeros.extend([item["text"] for item in label.get("value", [])])
-            elif label_name == "segundos":
-                segundos.extend([item["text"] for item in label.get("value", [])])
-            elif label_name == "postres":
-                postres.extend([item["text"] for item in label.get("value", [])])
-            elif label_name == "bebida":
-                bebidas.extend([item["text"] for item in label.get("value", [])])
-            elif label_name == "precio":
-                precio = label.get("value", [{}])[0].get("text", "No especificado").strip()
-
-        if not restaurante:
-            restaurante = "Desconocido"
-
-        # Inserción en la tabla Restaurante (evitar duplicados)
-        cursor.execute("""
-            IF NOT EXISTS (SELECT 1 FROM Restaurante WHERE Nombre = ?)
-            BEGIN
-                INSERT INTO Restaurante (Nombre, Ubicacion, Telefono, Email, Tipo_Restaurante) 
-                VALUES (?, 'Desconocida', 'Desconocido', 'info@desconocido.com', 'General')
-            END
-        """, restaurante, restaurante)
+    if result:
+        # Restaurante ya existe, devolver el ID
+        return result[0]
+        return result[0], True
+    else:
+        # Restaurante no existe, insertar y devolver el nuevo ID
+        cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
         conn.commit()
-
+        
         cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
         ID_Restaurante = cursor.fetchone()[0]
+        
+        conn.close()
+        return ID_Restaurante
+        # Restaurante no existe, devolver False
+        return None, False
 
-        # Inserción de platos (evitar duplicados)
-        for nombre_plato in primeros + segundos + postres + bebidas:
-            cursor.execute("""
-                IF NOT EXISTS (SELECT 1 FROM Plato WHERE ID_Restaurante = ? AND Nombre = ?)
-                BEGIN
-                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
-                    VALUES (?, ?, 'Desconocido', ?)
-                END
-            """, ID_Restaurante, nombre_plato, ID_Restaurante, nombre_plato, precio)
-        conn.commit()
+def registrar_restaurante(nombre, direccion, telefono, tipo_cocina):
+    # Conectar a la base de datos
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
+    
+    # Insertar el nuevo restaurante
+    cursor.execute(""" 
+        INSERT INTO Restaurante (Nombre, Direccion, Telefono, Tipo_Cocina)
+        VALUES (?, ?, ?, ?)
+    """, nombre, direccion, telefono, tipo_cocina)
+    
+    conn.commit()
+    
+    # Obtener el ID del restaurante recién registrado
+    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", nombre)
+    ID_Restaurante = cursor.fetchone()[0]
+    
+    conn.close()
+    return ID_Restaurante
 
-        # Inserción en MenuDiario y obtención del ID_Menu
-        cursor.execute("""
-            INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
-            OUTPUT INSERTED.ID_Menu
-            VALUES (?, GETDATE(), ?, 'Diario')
-        """, ID_Restaurante, precio)
-        ID_Menu = cursor.fetchone()[0]
-        conn.commit()
-
-        # Inserción en MenuPlato (evitar duplicados)
-        for nombre_plato in primeros + segundos + postres + bebidas:
-            cursor.execute("""
-                SELECT ID_Plato FROM Plato WHERE Nombre = ? AND ID_Restaurante = ?
-            """, nombre_plato, ID_Restaurante)
-            ID_Plato = cursor.fetchone()[0]
-
-            cursor.execute("""
-                IF NOT EXISTS (SELECT 1 FROM MenuPlato WHERE ID_Menu = ? AND ID_Plato = ?)
-                BEGIN
-                    INSERT INTO MenuPlato (ID_Menu, ID_Plato, Categoria)
-                    VALUES (?, ?, ?)
-                END
-            """, ID_Menu, ID_Plato, ID_Menu, ID_Plato, 'Desconocido')
-        conn.commit()
-
-        # Inserción en PDFMenu
-        cursor.execute("""
-            INSERT INTO PDFMenu (ID_Restaurante, Fecha, Archivo)
-            VALUES (?, GETDATE(), ?)
-        """, ID_Restaurante, blob_name)
-        conn.commit()
-
-        print(f"Se procesaron correctamente los datos de {blob_name}")
+def upload_to_blob(file):
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+        blob_client = container_client.get_blob_client(file.name)
+        blob_client.upload_blob(file, overwrite=True)
+        return file.name
     except Exception as e:
-        print(f"Error al procesar el blob {blob_name}: {e}")
+        st.error(f"Error al subir el archivo: {e}")
+        return None
 
-# Procesar cada blob
-for blob_name in blobs:
-    procesar_json(blob_name)
+def analyze_pdf(blob_name):
+    storage_account_name = AZURE_STORAGE_CONNECTION_STRING.split(';')[1].split('=')[1]  
+    url = f"https://{storage_account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
 
-cursor.close()
-conn.close()
-print("Los datos se han insertado correctamente en la base de datos.")
+    request_url = f"{DOCUMENT_INTELLIGENCE_ENDPOINT}/formrecognizer/documentModels/{MODEL_ID}:analyze?api-version=2023-07-31"
+    headers = {
+        "Content-Type": "application/json",
+        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
+    }
+    data = {"urlSource": url}
+    response = requests.post(request_url, headers=headers, json=data)
+
+    if response.status_code == 202:
+        result_url = response.headers["Operation-Location"]
+        return result_url
+    else:
+        st.error("Error al analizar el documento.")
+        return None
+
+def get_analysis_result(result_url):
+    headers = {
+        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
+    }
+
+    while True:
+        response = requests.get(result_url, headers=headers)
+        if response.status_code == 200:
+            result_data = response.json()
+            if result_data.get("status") == "succeeded":
+                return result_data
+            elif result_data.get("status") == "failed":
+                st.error("El análisis falló.")
+                return None
+            else:
+                st.info("El análisis aún está en proceso. Esperando...")
+                time.sleep(5)
+        else:
+            st.error("Error al obtener los resultados del análisis.")
+            return None
+
+def extraer_informacion(result_data):
+    data = {
+        "restaurante": "Desconocido",
+        "primeros": [],
+        "segundos": [],
+        "postres": [],
+        "bebidas": [],
+        "precio": "No especificado"
+    }
+
+    documents = result_data.get("analyzeResult", {}).get("documents", [])
+
+    for document in documents:
+        fields = document.get("fields", {})
+
+        if "restaurante" in fields:
+            data["restaurante"] = fields["restaurante"].get("valueString", "Desconocido")
+        if "primeros" in fields:
+            data["primeros"] = fields["primeros"].get("valueString", "").split(", ")
+        if "segundos" in fields:
+            data["segundos"] = fields["segundos"].get("valueString", "").split(", ")
+        if "postres" in fields:
+            data["postres"] = fields["postres"].get("valueString", "").split(", ")
+        if "bebida" in fields:
+            data["bebidas"] = fields["bebida"].get("valueString", "").split(", ")
+        if "precio" in fields:
+            data["precio"] = fields["precio"].get("valueString", "No especificado")
+
+    return data
+
+# Función que limpia los datos y los inserta en la base de datos
+def limpiar_y_guardar_datos(data):
+    # Limpiar los datos antes de insertarlos
+    data = limpiar_datos(data)
+
+    # Verificar y registrar el restaurante
+    ID_Restaurante = verificar_restaurante(data["restaurante"])
+    ID_Restaurante = verificar_restaurante(data["restaurante"])[0]
+
+    # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
+
+    # Insertar los platos en la tabla Plato
+    for categoria, platos in data.items():
+        if categoria not in ["restaurante", "precio"]:
+            for plato in platos:
+                # Insertar solo si el plato no está vacío
+                if plato:
+                    cursor.execute(""" 
+                        INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                        VALUES (?, ?, ?, ?)
+                    """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
+
+    # Insertar en MenuDiario si hay precios válidos
+    if data["precio"]:
+        fecha = datetime.now().date()
+        cursor.execute(""" 
+            INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
+            VALUES (?, ?, ?, ?)
+        """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    st.success("Datos del restaurante y menú diario registrados correctamente.")
+
+# --- Interfaz de usuario ---
+st.title("Subir PDF y extraer información con Document Intelligence")
+
+# Formulario de creación de restaurante
+st.subheader("Crear o seleccionar un restaurante")
+restaurante_nombre = st.text_input("Nombre del restaurante")
+
+if st.button("Crear Restaurante"):
+    if restaurante_nombre:
+        ID_Restaurante = verificar_restaurante(restaurante_nombre)
+        st.success(f"Restaurante '{restaurante_nombre}' registrado o ya existente con ID: {ID_Restaurante}")
+        ID_Restaurante, existe = verificar_restaurante(restaurante_nombre)
+        if existe:
+            st.success(f"Restaurante '{restaurante_nombre}' ya registrado con ID: {ID_Restaurante}")
+        else:
+            # Si no existe, pedir más detalles
+            st.info(f"Restaurante '{restaurante_nombre}' no encontrado. Por favor, ingrese los detalles.")
+            
+            direccion = st.text_input("Dirección del restaurante")
+            telefono = st.text_input("Teléfono del restaurante")
+            tipo_cocina = st.text_input("Tipo de cocina del restaurante")
+            
+            if st.button("Registrar Restaurante"):
+                if direccion and telefono and tipo_cocina:
+                    ID_Restaurante = registrar_restaurante(restaurante_nombre, direccion, telefono, tipo_cocina)
+                    st.success(f"Restaurante '{restaurante_nombre}' registrado exitosamente con ID: {ID_Restaurante}")
+                else:
+                    st.error("Por favor, complete todos los campos antes de registrar el restaurante.")
+    else:
+        st.error("Por favor, ingrese un nombre para el restaurante.")
+
+# Subir y analizar el archivo PDF
+uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
+
+if uploaded_file is not None:
+    st.write(f"Archivo cargado: {uploaded_file.name}")
+
+    if st.button("Subir y analizar PDF"):
+        # Subir el archivo al blob
+        blob_name = upload_to_blob(uploaded_file)
+        if blob_name:
+            # Analizar el archivo usando Document Intelligence
+            result_url = analyze_pdf(blob_name)
+            if result_url:
+                # Obtener los resultados del análisis
+                result_data = get_analysis_result(result_url)
+                if result_data:
+                    # Extraer la información relevante del resultado
+                    extracted_data = extraer_informacion(result_data)
+                    st.write("Información extraída:")
+                    st.write(extracted_data)
+                    # Llamar a la función para limpiar y guardar los datos
+                    limpiar_y_guardar_datos(extracted_data)
+                    st.success("Análisis completado.")
