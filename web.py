@@ -7,20 +7,17 @@ import json
 import time
 from limpieza_datos import limpiar_y_guardar_datos  # Importamos el script de limpieza de datos
 
-# Configuración de la conexión a Azure Blob Storage
-AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
-CONTAINER_NAME = st.secrets["CONTAINER_NAME"]
+# Obtener credenciales desde Streamlit secrets
+AZURE_STORAGE_CONNECTION_STRING = st.secrets["azure"]["AZURE_STORAGE_CONNECTION_STRING"]
+CONTAINER_NAME = st.secrets["azure"]["CONTAINER_NAME"]
+DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["azure"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
+DOCUMENT_INTELLIGENCE_KEY = st.secrets["azure"]["DOCUMENT_INTELLIGENCE_KEY"]
+MODEL_ID = st.secrets["azure"]["MODEL_ID"]
 
-# Configuración de Azure Document Intelligence
-DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["DOCUMENT_INTELLIGENCE_ENDPOINT"]
-DOCUMENT_INTELLIGENCE_KEY = st.secrets["DOCUMENT_INTELLIGENCE_KEY"]
-MODEL_ID = st.secrets["MODEL_ID"]
-
-# Configuración de la base de datos SQL Server
-DB_SERVER = st.secrets["DB_SERVER"]
-DB_DATABASE = st.secrets["DB_DATABASE"]
-DB_USERNAME = st.secrets["DB_USERNAME"]
-DB_PASSWORD = st.secrets["DB_PASSWORD"]
+DB_SERVER = st.secrets["database"]["DB_SERVER"]
+DB_DATABASE = st.secrets["database"]["DB_DATABASE"]
+DB_USERNAME = st.secrets["database"]["DB_USERNAME"]
+DB_PASSWORD = st.secrets["database"]["DB_PASSWORD"]
 
 def verificar_restaurante(restaurante):
     # Conectar a la base de datos
@@ -34,28 +31,15 @@ def verificar_restaurante(restaurante):
         # Restaurante ya existe, devolver el ID
         return result[0], True
     else:
-        # Restaurante no existe, devolver False
-        return None, False
-
-def registrar_restaurante(nombre, direccion, telefono, tipo_cocina):
-    # Conectar a la base de datos
-    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-    cursor = conn.cursor()
-    
-    # Insertar el nuevo restaurante
-    cursor.execute("""
-        INSERT INTO Restaurante (Nombre, Direccion, Telefono, Tipo_Cocina)
-        VALUES (?, ?, ?, ?)
-    """, nombre, direccion, telefono, tipo_cocina)
-    
-    conn.commit()
-    
-    # Obtener el ID del restaurante recién registrado
-    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", nombre)
-    ID_Restaurante = cursor.fetchone()[0]
-    
-    conn.close()
-    return ID_Restaurante
+        # Restaurante no existe, insertar y devolver el nuevo ID
+        cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
+        conn.commit()
+        
+        cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+        ID_Restaurante = cursor.fetchone()[0]
+        
+        conn.close()
+        return ID_Restaurante, False
 
 def upload_to_blob(file):
     try:
@@ -140,11 +124,11 @@ def extraer_informacion(result_data):
 
 # Función que limpia los datos y los inserta en la base de datos
 def limpiar_y_guardar_datos(data):
-    # Limpiar los datos antes de insertarlos
-    data = limpiar_datos(data)
-
     # Verificar y registrar el restaurante
-    ID_Restaurante = verificar_restaurante(data["restaurante"])[0]
+    ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
+    
+    if not existe:
+        st.write("Restaurante creado y registrado correctamente.")
     
     # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
@@ -154,20 +138,17 @@ def limpiar_y_guardar_datos(data):
     for categoria, platos in data.items():
         if categoria not in ["restaurante", "precio"]:
             for plato in platos:
-                # Insertar solo si el plato no está vacío
-                if plato:
-                    cursor.execute(""" 
-                        INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
-                        VALUES (?, ?, ?, ?)
-                    """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
+                cursor.execute(""" 
+                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                    VALUES (?, ?, ?, ?)
+                """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
     
-    # Insertar en MenuDiario si hay precios válidos
-    if data["precio"]:
-        fecha = datetime.now().date()
-        cursor.execute(""" 
-            INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
-            VALUES (?, ?, ?, ?)
-        """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
+    # Insertar en MenuDiario
+    fecha = datetime.now().date()
+    cursor.execute(""" 
+        INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
+        VALUES (?, ?, ?, ?)
+    """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
     
     conn.commit()
     cursor.close()
@@ -175,36 +156,8 @@ def limpiar_y_guardar_datos(data):
     
     st.success("Datos del restaurante y menú diario registrados correctamente.")
 
-# --- Interfaz de usuario ---
 st.title("Subir PDF y extraer información con Document Intelligence")
 
-# Formulario de creación de restaurante
-st.subheader("Crear o seleccionar un restaurante")
-restaurante_nombre = st.text_input("Nombre del restaurante")
-
-if st.button("Crear Restaurante"):
-    if restaurante_nombre:
-        ID_Restaurante, existe = verificar_restaurante(restaurante_nombre)
-        if existe:
-            st.success(f"Restaurante '{restaurante_nombre}' ya registrado con ID: {ID_Restaurante}")
-        else:
-            # Si no existe, pedir más detalles
-            st.info(f"Restaurante '{restaurante_nombre}' no encontrado. Por favor, ingrese los detalles.")
-            
-            direccion = st.text_input("Dirección del restaurante")
-            telefono = st.text_input("Teléfono del restaurante")
-            tipo_cocina = st.text_input("Tipo de cocina del restaurante")
-            
-            if st.button("Registrar Restaurante"):
-                if direccion and telefono and tipo_cocina:
-                    ID_Restaurante = registrar_restaurante(restaurante_nombre, direccion, telefono, tipo_cocina)
-                    st.success(f"Restaurante '{restaurante_nombre}' registrado exitosamente con ID: {ID_Restaurante}")
-                else:
-                    st.error("Por favor, complete todos los campos antes de registrar el restaurante.")
-    else:
-        st.error("Por favor, ingrese un nombre para el restaurante.")
-
-# Subir y analizar el archivo PDF
 uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
 
 if uploaded_file is not None:
