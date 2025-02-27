@@ -156,27 +156,34 @@ def limpiar_y_guardar_datos(data):
     
     st.success("Datos del restaurante y menú diario registrados correctamente.")
 
-st.title("Subir PDF y extraer información con Document Intelligence")
+# Crear un selector para elegir la página
+page = st.selectbox("Selecciona la página", ["Subir PDF y Analizar", "Crear Restaurante"])
 
-uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
+if page == "Subir PDF y Analizar":
+    st.title("Subir PDF y extraer información con Document Intelligence")
 
-if uploaded_file is not None:
-    st.write(f"Archivo cargado: {uploaded_file.name}")
-    
-    if st.button("Subir y analizar PDF"):
-        # Subir el archivo al blob
-        blob_name = upload_to_blob(uploaded_file)
-        if blob_name:
-            # Analizar el archivo usando Document Intelligence
-            result_url = analyze_pdf(blob_name)
-            if result_url:
-                # Obtener los resultados del análisis
-                result_data = get_analysis_result(result_url)
-                if result_data:
-                    # Extraer la información relevante del resultado
-                    extracted_data = extraer_informacion(result_data)
-                    st.write("Información extraída:")
-                    st.write(extracted_data)
-                    # Llamar a la función para limpiar y guardar los datos
-                    limpiar_y_guardar_datos(extracted_data)
-                    st.success("Análisis completado.")
+    uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
+
+    if uploaded_file is not None:
+        st.write(f"Archivo cargado: {uploaded_file.name}")
+        
+        if st.button("Subir y analizar PDF"):
+            # Subir el archivo al blob
+            blob_name = upload_to_blob(uploaded_file)
+            if blob_name:
+                # Analizar el archivo usando Document Intelligence
+                result_url = analyze_pdf(blob_name)
+                if result_url:
+                    # Obtener los resultados del análisis
+                    result_data = get_analysis_result(result_url)
+                    if result_data:
+                        # Extraer la información relevante del resultado
+                        extracted_data = extraer_informacion(result_data)
+                        st.write("Información extraída:")
+                        st.write(extracted_data)
+                        # Llamar a la función para limpiar y guardar los datos
+                        limpiar_y_guardar_datos(extracted_data)
+                        st.success("Análisis completado.")
+
+elif page == "Crear Restaurante":
+    import crear_restaurante  # Importar el archivo para crear restaurantes
