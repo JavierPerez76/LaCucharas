@@ -1,4 +1,6 @@
 import streamlit as st
+import pyodbc
+from datetime import datetime
 from azure.storage.blob import BlobServiceClient
 import requests
 import json
@@ -19,6 +21,28 @@ DB_SERVER = st.secrets["DB_SERVER"]
 DB_DATABASE = st.secrets["DB_DATABASE"]
 DB_USERNAME = st.secrets["DB_USERNAME"]
 DB_PASSWORD = st.secrets["DB_PASSWORD"]
+
+def verificar_restaurante(restaurante):
+    # Conectar a la base de datos
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+    result = cursor.fetchone()
+    
+    if result:
+        # Restaurante ya existe, devolver el ID
+        return result[0]
+    else:
+        # Restaurante no existe, insertar y devolver el nuevo ID
+        cursor.execute("INSERT INTO Restaurante (Nombre) VALUES (?)", restaurante)
+        conn.commit()
+        
+        cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante)
+        ID_Restaurante = cursor.fetchone()[0]
+        
+        conn.close()
+        return ID_Restaurante
 
 def upload_to_blob(file):
     try:
@@ -103,9 +127,34 @@ def extraer_informacion(result_data):
 
 # Función que limpia los datos y los inserta en la base de datos
 def limpiar_y_guardar_datos(data):
-    # Aquí iría el código para limpiar y formatear los datos para la base de datos
-    # y luego insertarlos en la base de datos SQL
-    st.write("Datos listos para insertar en la base de datos:", data)
+    # Verificar y registrar el restaurante
+    ID_Restaurante = verificar_restaurante(data["restaurante"])
+    
+    # Limpiar e insertar los datos como antes, pero ahora con el ID_Restaurante
+    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+    cursor = conn.cursor()
+    
+    # Insertar los platos en la tabla Plato
+    for categoria, platos in data.items():
+        if categoria not in ["restaurante", "precio"]:
+            for plato in platos:
+                cursor.execute(""" 
+                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                    VALUES (?, ?, ?, ?)
+                """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
+    
+    # Insertar en MenuDiario
+    fecha = datetime.now().date()
+    cursor.execute("""
+        INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
+        VALUES (?, ?, ?, ?)
+    """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    st.success("Datos del restaurante y menú diario registrados correctamente.")
 
 st.title("Subir PDF y extraer información con Document Intelligence")
 

@@ -24,7 +24,7 @@ def limpiar_y_guardar_datos(data):
     for categoria, platos in data.items():
         if categoria not in ["restaurante", "precio"]:
             for plato in platos:
-                cursor.execute("""
+                cursor.execute(""" 
                     INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
                     VALUES (?, ?, ?, ?)
                 """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
