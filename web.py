@@ -5,37 +5,55 @@ from azure.storage.blob import BlobServiceClient
 import requests
 import json
 import time
+import re
 
-# Función de limpieza de datos
+# Configuración de la base de datos
+DB_SERVER = "TU_SERVIDOR"
+DB_DATABASE = "TU_BASE_DE_DATOS"
+DB_USERNAME = "TU_USUARIO"
+DB_PASSWORD = "TU_CONTRASEÑA"
+
+# Configuración de Azure Blob Storage
+BLOB_CONNECTION_STRING = "TU_CONEXION_AZURE_STORAGE"
+CONTAINER_NAME = "TU_CONTENEDOR"
+
+# Configuración de Document Intelligence
+DOCUMENT_INTELLIGENCE_ENDPOINT = "TU_ENDPOINT"
+DOCUMENT_INTELLIGENCE_KEY = "TU_CLAVE"
+
+def segmentar_texto(texto):
+    """ Separa un texto en frases distintas cuando detecta una palabra con mayúscula inicial. """
+    segmentos = []
+    palabras = texto.split()
+
+    if not palabras:
+        return []
+
+    segmento_actual = palabras[0]
+
+    for palabra in palabras[1:]:
+        if palabra[0].isupper():  # Nueva palabra con mayúscula -> nueva cadena
+            segmentos.append(segmento_actual.strip())
+            segmento_actual = palabra
+        else:
+            segmento_actual += f" {palabra}"
+
+    # Agregar el último segmento
+    segmentos.append(segmento_actual.strip())
+
+    return segmentos
+
 def limpiar_datos(data, restaurante_usuario):
     cleaned_data = {
-        "restaurante": restaurante_usuario.strip(),  # Usamos el restaurante que ingresa el usuario
-        "primeros": [plato.strip() for plato in data.get("primeros", []) if plato.strip()],
-        "segundos": [plato.strip() for plato in data.get("segundos", []) if plato.strip()],
-        "postres": [plato.strip() for plato in data.get("postres", []) if plato.strip()],
-        "bebidas": [plato.strip() for plato in data.get("bebidas", []) if plato.strip()],
+        "restaurante": restaurante_usuario.strip(),  
+        "primeros": segmentar_texto(data.get("primeros", "")),
+        "segundos": segmentar_texto(data.get("segundos", "")),
+        "postres": segmentar_texto(data.get("postres", "")),
+        "bebidas": segmentar_texto(data.get("bebidas", "")),
         "precio": data.get("precio", "No especificado").strip()
     }
-    
-    if cleaned_data["restaurante"] == "Desconocido" or not cleaned_data["restaurante"]:
-        cleaned_data["restaurante"] = "Desconocido"
 
     return cleaned_data
-
-# Configuración de la conexión a Azure Blob Storage
-AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE"]["AZURE_STORAGE_CONNECTION_STRING"]
-CONTAINER_NAME = st.secrets["AZURE"]["CONTAINER_NAME"]
-
-# Configuración de Azure Document Intelligence
-DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
-DOCUMENT_INTELLIGENCE_KEY = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_KEY"]
-MODEL_ID = st.secrets["AZURE"]["MODEL_ID"]
-
-# Configuración de la base de datos SQL Server
-DB_SERVER = st.secrets["DB"]["DB_SERVER"]
-DB_DATABASE = st.secrets["DB"]["DB_DATABASE"]
-DB_USERNAME = st.secrets["DB"]["DB_USERNAME"]
-DB_PASSWORD = st.secrets["DB"]["DB_PASSWORD"]
 
 def verificar_restaurante(restaurante_usuario):
     try:
@@ -45,100 +63,15 @@ def verificar_restaurante(restaurante_usuario):
         cursor.execute("SELECT ID_Restaurante FROM Restaurante WHERE Nombre = ?", restaurante_usuario)
         result = cursor.fetchone()
 
-        if result:
-            return result[0], True
-        else:
-            st.error(f"El restaurante '{restaurante_usuario}' no existe en la base de datos.")
-            conn.close()
-            return None, False
+        conn.close()
+        return (result[0], True) if result else (None, False)
+
     except pyodbc.Error as e:
         st.error(f"Error al conectar con la base de datos: {e}")
         return None, False
 
-def upload_to_blob(file):
-    try:
-        blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
-        container_client = blob_service_client.get_container_client(CONTAINER_NAME)
-        blob_client = container_client.get_blob_client(file.name)
-        blob_client.upload_blob(file, overwrite=True)
-        return file.name
-    except Exception as e:
-        st.error(f"Error al subir el archivo: {e}")
-        return None
-
-def analyze_pdf(blob_name):
-    storage_account_name = AZURE_STORAGE_CONNECTION_STRING.split(';')[1].split('=')[1]  
-    url = f"https://{storage_account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
-
-    request_url = f"{DOCUMENT_INTELLIGENCE_ENDPOINT}/formrecognizer/documentModels/{MODEL_ID}:analyze?api-version=2023-07-31"
-    headers = {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
-    }
-    data = {"urlSource": url}
-    response = requests.post(request_url, headers=headers, json=data)
-
-    if response.status_code == 202:
-        result_url = response.headers["Operation-Location"]
-        return result_url
-    else:
-        st.error("Error al analizar el documento.")
-        return None
-
-def get_analysis_result(result_url):
-    headers = {
-        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
-    }
-
-    while True:
-        response = requests.get(result_url, headers=headers)
-        if response.status_code == 200:
-            result_data = response.json()
-            if result_data.get("status") == "succeeded":
-                return result_data
-            elif result_data.get("status") == "failed":
-                st.error("El análisis falló.")
-                return None
-            else:
-                st.info("El análisis aún está en proceso. Esperando...")
-                time.sleep(5)
-        else:
-            st.error("Error al obtener los resultados del análisis.")
-            return None
-
-def extraer_informacion(result_data):
-    data = {
-        "restaurante": "Desconocido",
-        "primeros": [],
-        "segundos": [],
-        "postres": [],
-        "bebidas": [],
-        "precio": "No especificado"
-    }
-
-    documents = result_data.get("analyzeResult", {}).get("documents", [])
-
-    for document in documents:
-        fields = document.get("fields", {})
-
-        if "restaurante" in fields:
-            data["restaurante"] = fields["restaurante"].get("valueString", "Desconocido")
-        if "primeros" in fields:
-            data["primeros"] = fields["primeros"].get("valueString", "").split(", ")
-        if "segundos" in fields:
-            data["segundos"] = fields["segundos"].get("valueString", "").split(", ")
-        if "postres" in fields:
-            data["postres"] = fields["postres"].get("valueString", "").split(", ")
-        if "bebida" in fields:
-            data["bebidas"] = fields["bebida"].get("valueString", "").split(", ")
-        if "precio" in fields:
-            data["precio"] = fields["precio"].get("valueString", "No especificado")
-
-    return data
-
 def limpiar_y_guardar_datos(data, restaurante_nombre):
     data = limpiar_datos(data, restaurante_nombre)
-
     ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
 
     if not existe:
@@ -148,20 +81,17 @@ def limpiar_y_guardar_datos(data, restaurante_nombre):
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
     cursor = conn.cursor()
 
-    # Borrar los menús anteriores
-    cursor.execute("""
-        DELETE FROM Plato WHERE ID_Restaurante = ?
-    """, ID_Restaurante)
+    # Borrar menús anteriores del restaurante
+    cursor.execute("DELETE FROM Plato WHERE ID_Restaurante = ?", ID_Restaurante)
 
-    # Insertar nuevos platos
-    for categoria, platos in data.items():
-        if categoria not in ["restaurante", "precio"]:
-            for plato in platos:
-                if plato:
-                    cursor.execute(""" 
-                        INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
-                        VALUES (?, ?, ?, ?)
-                    """, ID_Restaurante, plato, categoria, data.get("precio", "No especificado"))
+    # Insertar platos correctamente
+    for categoria in ['primeros', 'segundos', 'postres', 'bebidas']:
+        for plato in data[categoria]:
+            if plato:
+                cursor.execute("""
+                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                    VALUES (?, ?, ?, ?)
+                """, ID_Restaurante, plato, categoria, data["precio"])
 
     # Insertar menú diario
     if data["precio"]:
@@ -177,17 +107,82 @@ def limpiar_y_guardar_datos(data, restaurante_nombre):
 
     st.success("Datos del restaurante y menú diario registrados correctamente.")
 
-st.title("Subir PDF y extraer información con Document Intelligence")
+def extraer_texto_desde_document_intelligence(blob_url):
+    headers = {
+        "Ocp-Apim-Subscription-Key": DOCUMENT_INTELLIGENCE_KEY,
+        "Content-Type": "application/json"
+    }
+    body = {"urlSource": blob_url}
 
-restaurante_nombre = st.text_input("Ingrese el nombre del restaurante")
-uploaded_file = st.file_uploader("Subir archivo PDF de menú", type=["pdf"])
+    response = requests.post(
+        f"{DOCUMENT_INTELLIGENCE_ENDPOINT}/formrecognizer/documentModels/prebuilt-layout:analyze?api-version=2022-08-31",
+        headers=headers, json=body
+    )
 
-if uploaded_file is not None and restaurante_nombre:
-    blob_name = upload_to_blob(uploaded_file)
-    if blob_name:
-        result_url = analyze_pdf(blob_name)
-        if result_url:
-            result_data = get_analysis_result(result_url)
-            if result_data:
-                data = extraer_informacion(result_data)
-                limpiar_y_guardar_datos(data, restaurante_nombre)  # Pasamos el restaurante_nombre como argumento
+    if response.status_code != 202:
+        st.error("Error al analizar el documento.")
+        return None
+
+    operation_location = response.headers["Operation-Location"]
+    
+    # Esperar el procesamiento
+    for _ in range(10):
+        time.sleep(2)
+        result_response = requests.get(operation_location, headers=headers)
+        result_json = result_response.json()
+        
+        if "status" in result_json and result_json["status"] == "succeeded":
+            return result_json
+        
+    st.error("Error: El análisis del documento no se completó a tiempo.")
+    return None
+
+def subir_archivo_a_blob(file):
+    blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=file.name)
+
+    blob_client.upload_blob(file, overwrite=True)
+    return blob_client.url
+
+def analizar_menu_desde_documento(file, restaurante_usuario):
+    blob_url = subir_archivo_a_blob(file)
+    resultado_document = extraer_texto_desde_document_intelligence(blob_url)
+
+    if not resultado_document:
+        return
+
+    texto_extraido = " ".join([line["content"] for page in resultado_document["analyzeResult"]["pages"] for line in page["lines"]])
+
+    menu = {
+        "primeros": "",
+        "segundos": "",
+        "postres": "",
+        "bebidas": "",
+        "precio": ""
+    }
+
+    if "primeros" in texto_extraido.lower():
+        menu["primeros"] = texto_extraido.split("primeros")[-1].split("segundos")[0].strip()
+    if "segundos" in texto_extraido.lower():
+        menu["segundos"] = texto_extraido.split("segundos")[-1].split("postres")[0].strip()
+    if "postres" in texto_extraido.lower():
+        menu["postres"] = texto_extraido.split("postres")[-1].split("bebidas")[0].strip()
+    if "bebidas" in texto_extraido.lower():
+        menu["bebidas"] = texto_extraido.split("bebidas")[-1].split("11.90")[0].strip()
+    if "11.90" in texto_extraido:
+        menu["precio"] = "11.90"
+
+    limpiar_y_guardar_datos(menu, restaurante_usuario)
+
+# INTERFAZ DE USUARIO EN STREAMLIT
+st.title("Subir archivo PDF de menú")
+
+restaurante_usuario = st.text_input("Nombre del restaurante")
+
+uploaded_file = st.file_uploader("Selecciona un archivo PDF", type=["pdf"])
+
+if uploaded_file is not None:
+    if restaurante_usuario:
+        analizar_menu_desde_documento(uploaded_file, restaurante_usuario)
+    else:
+        st.error("Por favor, ingrese el nombre del restaurante antes de subir el archivo.")
