@@ -55,8 +55,6 @@ def verificar_restaurante(restaurante_usuario):
         st.error(f"Error al conectar con la base de datos: {e}")
         return None, False
 
-
-
 def upload_to_blob(file):
     try:
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
@@ -138,13 +136,14 @@ def extraer_informacion(result_data):
 
     return data
 
-def limpiar_y_guardar_datos(data):
+def limpiar_y_guardar_datos(data, restaurante_usuario):
     data = limpiar_datos(data)
 
-    ID_Restaurante, existe = verificar_restaurante(data["restaurante"])
+    # Usar el nombre del restaurante que el usuario ingresó manualmente
+    ID_Restaurante, existe = verificar_restaurante(restaurante_usuario)
 
     if not existe:
-        st.error(f"El restaurante '{data['restaurante']}' no existe en la base de datos. No se puede registrar el menú.")
+        st.error(f"El restaurante '{restaurante_usuario}' no existe en la base de datos. No se puede registrar el menú.")
         return
 
     conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
@@ -185,4 +184,5 @@ if uploaded_file is not None and restaurante_nombre:
             result_data = get_analysis_result(result_url)
             if result_data:
                 data = extraer_informacion(result_data)
-                limpiar_y_guardar_datos(data)
+                # Ahora usamos el restaurante ingresado manualmente por el usuario
+                limpiar_y_guardar_datos(data, restaurante_nombre)
