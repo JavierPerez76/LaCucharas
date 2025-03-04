@@ -21,8 +21,6 @@ CONTAINER_NAME = st.secrets["AZURE"]["CONTAINER_NAME"]
 DOCUMENT_INTELLIGENCE_ENDPOINT = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_ENDPOINT"]
 DOCUMENT_INTELLIGENCE_KEY = st.secrets["AZURE"]["DOCUMENT_INTELLIGENCE_KEY"]
 
-# Resto del código sin cambios
-
 def segmentar_texto(texto):
     segmentos = []
     palabras = texto.split()
@@ -67,26 +65,29 @@ def limpiar_y_guardar_datos(data, restaurante_nombre):
     if not existe:
         st.error(f"El restaurante '{data['restaurante']}' no existe en la base de datos. No se puede registrar el menú.")
         return
-    conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM Plato WHERE ID_Restaurante = ?", ID_Restaurante)
-    for categoria in ['primeros', 'segundos', 'postres', 'bebidas']:
-        for plato in data[categoria]:
-            if plato:
-                cursor.execute("""
-                    INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
-                    VALUES (?, ?, ?, ?)
-                """, ID_Restaurante, plato, categoria, data["precio"])
-    if data["precio"]:
-        fecha = datetime.now().date()
-        cursor.execute(""" 
-            INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
-            VALUES (?, ?, ?, ?)
-        """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
-    conn.commit()
-    cursor.close()
-    conn.close()
-    st.success("Datos del restaurante y menú diario registrados correctamente.")
+    try:
+        conn = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={DB_SERVER};PORT=1433;DATABASE={DB_DATABASE};UID={DB_USERNAME};PWD={DB_PASSWORD}')
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM Plato WHERE ID_Restaurante = ?", ID_Restaurante)
+        for categoria in ['primeros', 'segundos', 'postres', 'bebidas']:
+            for plato in data[categoria]:
+                if plato:
+                    cursor.execute("""
+                        INSERT INTO Plato (ID_Restaurante, Nombre, Tipo, Precio)
+                        VALUES (?, ?, ?, ?)
+                    """, ID_Restaurante, plato, categoria, data["precio"])
+        if data["precio"]:
+            fecha = datetime.now().date()
+            cursor.execute(""" 
+                INSERT INTO MenuDiario (ID_Restaurante, Fecha, Precio, Tipo_Menu)
+                VALUES (?, ?, ?, ?)
+            """, ID_Restaurante, fecha, data["precio"], "Menú Diario")
+        conn.commit()
+        cursor.close()
+        conn.close()
+        st.success("Datos del restaurante y menú diario registrados correctamente.")
+    except pyodbc.Error as e:
+        st.error(f"Error al ejecutar la consulta SQL: {e}")
 
 def extraer_texto_desde_document_intelligence(blob_url):
     headers = {
@@ -131,9 +132,7 @@ def analizar_menu_desde_documento(file, restaurante_usuario):
     if "postres" in texto_extraido.lower():
         menu["postres"] = texto_extraido.split("postres")[-1].split("bebidas")[0].strip()
     if "bebidas" in texto_extraido.lower():
-        menu["bebidas"] = texto_extraido.split("bebidas")[-1].split("11.90")[0].strip()
-    if "11.90" in texto_extraido:
-        menu["precio"] = "11.90"
+        menu["bebidas"] = texto_extraido.split("bebidas")[-1].strip()
     limpiar_y_guardar_datos(menu, restaurante_usuario)
 
 st.title("Subir archivo PDF de menú")
